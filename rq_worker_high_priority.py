@@ -13,7 +13,8 @@ using an even lower math-library thread cap so latency-sensitive jobs run
 promptly alongside the heavier default-queue worker.
 
 Main Features:
-* Caps math-library threads (cpu_count // 3) and pins passive OpenMP waiting.
+* Caps math-library threads (cpu_count // 3, min 1) and pins passive OpenMP waiting,
+  sizing the cap from the container CPU limit when ``cpu_budget`` can find one.
 * Heals the config projection before the first job when the process imported config
   before Postgres was up; a boot that already projected the default server skips it.
 * Takes its worker class from ``rq_heartbeat_worker`` (a heartbeating SimpleWorker on
@@ -28,7 +29,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 os.environ['AUDIOMUSE_ROLE'] = 'worker'
 
-_cpu_count = os.cpu_count() or 1
+from cpu_budget import detect_cpu_count
+
+_cpu_count, _cpu_source = detect_cpu_count(os.cpu_count() or 1, 1, label='High-priority worker')
 _max_threads = max(1, _cpu_count // 3)
 for _env_key in (
     'OMP_NUM_THREADS',
@@ -40,7 +43,10 @@ for _env_key in (
     os.environ[_env_key] = str(_max_threads)
 os.environ.setdefault('GOMP_SPINCOUNT', '0')
 os.environ.setdefault('OMP_WAIT_POLICY', 'passive')
-print(f"High-priority worker CPU thread cap = {_max_threads} (cpu_count // 3, min 1)")
+print(
+    f"High-priority worker CPU thread cap = {_max_threads} "
+    f"(cpu_count // 3, min 1, {_cpu_count} CPUs from {_cpu_source})"
+)
 
 from rq_heartbeat_worker import WorkerClass
 
